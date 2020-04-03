@@ -19,6 +19,9 @@ import matplotlib as mpl
 import SPC_to_h5_ayh
 import AlexHRaman as AHR
 
+#########################################
+### RamanSpectrum class
+
 class RamanSpectrum:
     def __init__(self, wn, spec_data, attrs={}):
         if wn[0] < wn[1]:
@@ -135,44 +138,52 @@ class RamanSpectrum:
     def new_rows(self, new_rows):
         return RamanSpectrum(self.wn, self.spec_data[new_rows, :])
 
+#########################################
 
 
+#########################################
+### Functions to read h5 files
 
+def from_h5file_make_dict(fileloc):
+    with h5py.File(fileloc, 'r') as f:
+        if 'All Raw' in f:
+            output_dict = from_h5obj_make_dict(f['All Raw'], shorten_spec_names=True)
+        else:
+            output_dict = from_h5obj_make_dict(f)
+        
+    return output_dict
 
-
-
+def from_h5obj_make_dict(h5obj, shorten_spec_names=False, create_times_lst=False):
+    output_dict = {}
+    i=0
+    times_lst = []
+    for key,value in h5obj.items():
+        if type(value) == h5py.Dataset:
+            keystring = 'spec_'+str(i) if shorten_spec_names else str(key)
+            output_dict[keystring] = RamanSpectrum(value.attrs['x'], 
+                np.array(value),
+                dict(value.attrs))
+            times_lst.append(value.attrs['creation_time'])
+            i=i+1
+        elif type(value) == h5py.Group:
+            output_dict[key] = from_h5obj_make_dict(value)
+    if create_times_lst:
+        return output_dict, times_lst
+    else:
+        return output_dict
     
-def calculate_max_after_100wn(x, y):
-    if y.ndim == 1:
-        return np.amax(y[np.where(x>100)])
-    elif y.ndim == 2:
-        return np.amax(y[:, np.where(x>100)])
 
-def h5data_fetch_spec(h5data, spectrum_names):
-    
-    if type(spectrum_names) == str:
-        current = h5data[spectrum_names]
-        spectrum_x = current.attrs['x']
-        spectrum_raman = np.reshape(np.array(current), (-1, np.size(spectrum_x)))
-
-        return RamanSpectrum(spectrum_x, spectrum_raman)
-        
-    elif type(spectrum_names) == list:
-        first = h5data[spectrum_names[0]]
-        first_x = first.attrs['x']
-        output_RamanSpectrum = RamanSpectrum(first_x, np.empty((0, np.size(first_x))))
-        
-        for i in range(len(spectrum_names)):
-            current = h5data[spectrum_names[i]]
-            spectrum_x = current.attrs['x']
-            if np.array_equal(output_RamanSpectrum.wn, spectrum_x) == False:
-                print('Be careful! x-axis vectors are not consistent')
-            
-            current_raman = np.reshape(np.array(current), (-1, np.size(spectrum_x)))
-            output_RamanSpectrum.spec_data = np.vstack((output_RamanSpectrum.spec_data, current_raman))
-        
-        return output_RamanSpectrum
-
+def process_raman_data(directory, spc_to_h5=True, plot_all=True, create_times_lst=False):
+    os.chdir(directory)
+    if spc_to_h5:
+        SPC_to_h5_ayh.run(os.getcwd())
+    with open(os.path.basename(os.getcwd())+'-raman-data.h5', 'rb') as f:
+        current_data = h5py.File(f, 'r')
+        # current_data_dict = AHR.from_h5_create_dict(current_data, create_times_lst)
+        current_data_result = AHR.from_h5obj_make_dict(current_data['All Raw'], shorten_spec_names=True, create_times_lst=create_times_lst)
+        if plot_all:
+            AHR.from_h5_plot_all(current_data)
+    return current_data_result
 
 def from_h5_plot_all(h5data):
     f_loaded = h5data['All Raw']
@@ -210,69 +221,81 @@ def from_h5_plot_all(h5data):
         plt.minorticks_on()
         plt.show()
 
-def from_h5_create_dict(h5data, create_times_lst=False):
-    f_loaded = h5data['All Raw']
-    spectra_names_lst = list(f_loaded.keys())
-    num_spectra = len(spectra_names_lst)
-    output_dict = {}
-    times_lst = []
-    for i in range(num_spectra):
-        current_spectra_name = spectra_names_lst[i]
-        current_data = f_loaded[current_spectra_name]
-        current_data_raman = np.transpose(np.array(current_data))
-        current_data_x = current_data.attrs['x']
-        current_data_attrs = current_data.attrs
+def h5data_fetch_spec(h5data, spectrum_names):
+    
+    if type(spectrum_names) == str:
+        current = h5data[spectrum_names]
+        spectrum_x = current.attrs['x']
+        spectrum_raman = np.reshape(np.array(current), (-1, np.size(spectrum_x)))
 
-        keyname = 'spec_'+str(i)
-        output_dict[keyname] = h5data_fetch_spec(f_loaded, current_spectra_name)
-        times_lst.append(current_data_attrs['creation_time'])
-    if create_times_lst:
-        return output_dict, times_lst
-    return output_dict
-
+        return RamanSpectrum(spectrum_x, spectrum_raman)
         
+    elif type(spectrum_names) == list:
+        first = h5data[spectrum_names[0]]
+        first_x = first.attrs['x']
+        output_RamanSpectrum = RamanSpectrum(first_x, np.empty((0, np.size(first_x))))
+        
+        for i in range(len(spectrum_names)):
+            current = h5data[spectrum_names[i]]
+            spectrum_x = current.attrs['x']
+            if np.array_equal(output_RamanSpectrum.wn, spectrum_x) == False:
+                print('Be careful! x-axis vectors are not consistent')
+            
+            current_raman = np.reshape(np.array(current), (-1, np.size(spectrum_x)))
+            output_RamanSpectrum.spec_data = np.vstack((output_RamanSpectrum.spec_data, current_raman))
+        
+        return output_RamanSpectrum
+
+# def from_h5_create_dict(h5data, create_times_lst=False):
+#     f_loaded = h5data['All Raw']
+#     spectra_names_lst = list(f_loaded.keys())
+#     num_spectra = len(spectra_names_lst)
+#     output_dict = {}
+#     times_lst = []
+#     for i in range(num_spectra):
+#         current_spectra_name = spectra_names_lst[i]
+#         current_data = f_loaded[current_spectra_name]
+#         current_data_raman = np.transpose(np.array(current_data))
+#         current_data_x = current_data.attrs['x']
+#         current_data_attrs = current_data.attrs
+
+#         keyname = 'spec_'+str(i)
+#         output_dict[keyname] = h5data_fetch_spec(f_loaded, current_spectra_name)
+#         times_lst.append(current_data_attrs['creation_time'])
+#     if create_times_lst:
+#         return output_dict, times_lst
+#     return output_dict
 
 
-def modified_z_score(intensity):
-    median_int = np.median(intensity)
-    mad_int = np.median([np.abs(intensity - median_int)])
-    modified_z_scores = 0.6745 * (intensity - median_int) / mad_int
-    return abs(modified_z_scores)
+#########################################
 
-def removeCRArray(wn, array, threshold=5, window_size=5, start_wn=100):
-    start_wn_idx = min(wn, key=lambda x:abs(x-start_wn))
-    
-    current_z_score = modified_z_score(array)
-    spikes = current_z_score > threshold
-    
-    array_spikes_rem = copy.copy(array)
-    m=window_size
-    for i in range(np.size(array)):
-        if spikes[i] != 0 and i>start_wn_idx:
-            # print(i)
-            leftbound = max(i-m, 0)
-            rightbound = min(i+m+1, np.size(array))
-            w = np.arange(leftbound, rightbound)
-            w2 = w[spikes[w] == 0]
-            array_spikes_rem[i] = np.mean(array[w2])
-    return array_spikes_rem
+#########################################
+### Functions to go from dictionary to h5
 
-def simpleline_style(xlim=[0,4000], ylim=[0, 10000]):
-    fig = plt.gcf()
-    ax = plt.gca()
+def from_dict_write_h5(input_dict, fileloc):
+    with h5py.File(fileloc, 'w') as f:
+        from_dict_write_h5_helper(input_dict, f)
 
-    ax.set_xlabel('Raman shift (cm$\\mathregular{^{-1}}$)', )
-    ax.set_ylabel('Counts')
-    ax.set_xlim(xlim)
-    ax.set_ylim(ylim)
+def from_dict_write_h5_helper(input_dict, h5obj):
+    for key,value in input_dict.items():
+        if type(value) == RamanSpectrum:
+            h5obj[key] = value.spec_data
+            h5obj[key].attrs['x'] = value.wn
+            h5obj[key].attrs['wavelengths'] = value.wn
+            attrs_helper(value.attrs, h5obj[key])
+        elif type(value) == dict:
+            h5obj.create_group(key)
+            from_dict_write_h5_helper(value, h5obj[key])
 
-    ax.minorticks_on()
+def attrs_helper(attrs_dict, h5dataset):
+    for key, value in attrs_dict.items():
+        if key not in ['x', 'wavelengths']:
+            h5dataset.attrs[key] = value
 
-    ax.tick_params(direction='in')
+#########################################
 
-    fig.set_size_inches(6, 4)
-    
-    plt.style.use('ayh_simplelines')
+#########################################
+### Functions to analyze dictionaries of raman spectra
 
 def removeCRs_from_dict(input_dict, threshold=5, window_size=5):
     output_dict = {}
@@ -320,77 +343,69 @@ def combine_RamanSpectra(input_dict, list_of_keys):
     spec_data_list_tuples = tuple(spec_data_list)
     return RamanSpectrum(wn, np.vstack(spec_data_list_tuples))
 
+#########################################
 
-def wn_to_wl(wn, excitation_line=633):
-    return 1/(-wn*1e-7 + 1/excitation_line)
+#########################################
+### Functions for style purposes
 
 def mpl_inline():
     
     mpl.rcParams['figure.dpi']= 150
     plt.rcParams['figure.facecolor'] = 'white'
 
+def simpleline_style(xlim=[0,4000], ylim=[0, 10000]):
+    fig = plt.gcf()
+    ax = plt.gca()
 
+    ax.set_xlabel('Raman shift (cm$\\mathregular{^{-1}}$)', )
+    ax.set_ylabel('Counts')
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
 
-#########################################
-### Functions to go from dictionary to h5
+    ax.minorticks_on()
 
-def from_dict_write_h5(input_dict, fileloc):
-    with h5py.File(fileloc, 'w') as f:
-        from_dict_write_h5_helper(input_dict, f)
+    ax.tick_params(direction='in')
 
-def from_dict_write_h5_helper(input_dict, h5obj):
-    for key,value in input_dict.items():
-        if type(value) == RamanSpectrum:
-            h5obj[key] = value.spec_data
-            h5obj[key].attrs['x'] = value.wn
-            h5obj[key].attrs['wavelengths'] = value.wn
-            attrs_helper(value.attrs, h5obj[key])
-        elif type(value) == dict:
-            h5obj.create_group(key)
-            from_dict_write_h5_helper(value, h5obj[key])
-
-def attrs_helper(attrs_dict, h5dataset):
-    for key, value in attrs_dict:
-        h5dataset.attrs[key] = value
+    fig.set_size_inches(6, 4)
+    
+    plt.style.use('ayh_simplelines')
 
 #########################################
 
 #########################################
-### Functions to go from h5 to dictionary
+### Miscellaneous
 
-def from_h5file_make_dict(fileloc):
-    with h5py.File(fileloc, 'r') as f:
-        if 'All Raw' in f:
-            output_dict = from_h5obj_make_dict(f['All Raw'], shorten_spec_names=True)
-        else:
-            output_dict = from_h5obj_make_dict(f)
-        
-    return output_dict
+def wn_to_wl(wn, excitation_line=633):
+    return 1/(-wn*1e-7 + 1/excitation_line)
 
-def from_h5obj_make_dict(h5obj, shorten_spec_names=False):
-    output_dict = {}
-    i=0
-    for key,value in h5obj.items():
-        if type(value) == h5py.Dataset:
-            keystring = 'spec_'+str(i) if shorten_spec_names else str(key)
-            output_dict[keystring] = RamanSpectrum(value.attrs['x'], 
-                np.array(value),
-                dict(value.attrs))
-            i=i+1
-        elif type(value) == h5py.Group:
-            output_dict[key] = from_h5obj_make_dict(value)
+def calculate_max_after_100wn(x, y):
+    if y.ndim == 1:
+        return np.amax(y[np.where(x>100)])
+    elif y.ndim == 2:
+        return np.amax(y[:, np.where(x>100)])
 
-    return output_dict
+def modified_z_score(intensity):
+    median_int = np.median(intensity)
+    mad_int = np.median([np.abs(intensity - median_int)])
+    modified_z_scores = 0.6745 * (intensity - median_int) / mad_int
+    return abs(modified_z_scores)
 
-def process_raman_data(directory, spc_to_h5=True, plot_all=True, create_times_lst=False):
-    os.chdir(directory)
-    if spc_to_h5:
-        SPC_to_h5_ayh.run(os.getcwd())
-    with open(os.path.basename(os.getcwd())+'-raman-data.h5', 'rb') as f:
-        current_data = h5py.File(f, 'r')
-        current_data_dict = AHR.from_h5_create_dict(current_data, create_times_lst)
-        if plot_all:
-            AHR.from_h5_plot_all(current_data)
-    return current_data_dict
-
+def removeCRArray(wn, array, threshold=5, window_size=5, start_wn=100):
+    start_wn_idx = min(wn, key=lambda x:abs(x-start_wn))
+    
+    current_z_score = modified_z_score(array)
+    spikes = current_z_score > threshold
+    
+    array_spikes_rem = copy.copy(array)
+    m=window_size
+    for i in range(np.size(array)):
+        if spikes[i] != 0 and i>start_wn_idx:
+            # print(i)
+            leftbound = max(i-m, 0)
+            rightbound = min(i+m+1, np.size(array))
+            w = np.arange(leftbound, rightbound)
+            w2 = w[spikes[w] == 0]
+            array_spikes_rem[i] = np.mean(array[w2])
+    return array_spikes_rem
+    
 #########################################
