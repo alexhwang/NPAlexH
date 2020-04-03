@@ -29,7 +29,7 @@ class RamanSpectrum:
             self.wn = np.flip(np.squeeze(wn))
             spec_data_tmp = np.fliplr(np.reshape(spec_data, (-1, np.size(wn))))
             self.spec_data = spec_data_tmp[~np.all(spec_data_tmp==0, axis=1)]
-        self.attrs={}
+        self.attrs=attrs
 
     def plot(self):
         fig, ax = plt.subplots()
@@ -329,11 +329,63 @@ def mpl_inline():
     mpl.rcParams['figure.dpi']= 150
     plt.rcParams['figure.facecolor'] = 'white'
 
+
+
+#########################################
+### Functions to go from dictionary to h5
+
+def from_dict_write_h5(input_dict, fileloc):
+    with h5py.File(fileloc, 'w') as f:
+        from_dict_write_h5_helper(input_dict, f)
+
+def from_dict_write_h5_helper(input_dict, h5obj):
+    for key,value in input_dict.items():
+        if type(value) == RamanSpectrum:
+            h5obj[key] = value.spec_data
+            h5obj[key].attrs['x'] = value.wn
+            h5obj[key].attrs['wavelengths'] = value.wn
+            attrs_helper(value.attrs, h5obj[key])
+        elif type(value) == dict:
+            h5obj.create_group(key)
+            from_dict_write_h5_helper(value, h5obj[key])
+
+def attrs_helper(attrs_dict, h5dataset):
+    for key, value in attrs_dict:
+        h5dataset.attrs[key] = value
+
+#########################################
+
+#########################################
+### Functions to go from h5 to dictionary
+
+def from_h5file_make_dict(fileloc):
+    with h5py.File(fileloc, 'r') as f:
+        if 'All Raw' in f:
+            output_dict = from_h5obj_make_dict(f['All Raw'], shorten_spec_names=True)
+        else:
+            output_dict = from_h5obj_make_dict(f)
+        
+    return output_dict
+
+def from_h5obj_make_dict(h5obj, shorten_spec_names=False):
+    output_dict = {}
+    i=0
+    for key,value in h5obj.items():
+        if type(value) == h5py.Dataset:
+            keystring = 'spec_'+str(i) if shorten_spec_names else str(key)
+            output_dict[keystring] = RamanSpectrum(value.attrs['x'], 
+                np.array(value),
+                dict(value.attrs))
+            i=i+1
+        elif type(value) == h5py.Group:
+            output_dict[key] = from_h5obj_make_dict(value)
+
+    return output_dict
+
 def process_raman_data(directory, spc_to_h5=True, plot_all=True, create_times_lst=False):
     os.chdir(directory)
     if spc_to_h5:
         SPC_to_h5_ayh.run(os.getcwd())
-    # print(os.path.basename(os.getcwd())+'-raman-data.h5')
     with open(os.path.basename(os.getcwd())+'-raman-data.h5', 'rb') as f:
         current_data = h5py.File(f, 'r')
         current_data_dict = AHR.from_h5_create_dict(current_data, create_times_lst)
@@ -341,6 +393,4 @@ def process_raman_data(directory, spc_to_h5=True, plot_all=True, create_times_ls
             AHR.from_h5_plot_all(current_data)
     return current_data_dict
 
-def from_dict_write_h5(fileloc):
-    with open(fileloc, 'w') as f:
-        dset = f.create_dataset
+#########################################
