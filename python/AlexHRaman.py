@@ -163,7 +163,9 @@ def from_h5obj_make_dict(h5obj, shorten_spec_names=False, create_times_lst=False
             output_dict[keystring] = RamanSpectrum(value.attrs['x'], 
                 np.array(value),
                 dict(value.attrs))
-            times_lst.append(value.attrs['creation_time'])
+
+            if create_times_lst:
+                times_lst.append(value.attrs['creation_time'])
             i=i+1
         elif type(value) == h5py.Group:
             output_dict[key] = from_h5obj_make_dict(value)
@@ -279,7 +281,7 @@ def from_dict_write_h5(input_dict, fileloc):
 def from_dict_write_h5_helper(input_dict, h5obj):
     for key,value in input_dict.items():
         if type(value) == RamanSpectrum:
-            h5obj[key] = value.spec_data
+            h5obj[key] = np.squeeze(value.spec_data)
             h5obj[key].attrs['x'] = value.wn
             h5obj[key].attrs['wavelengths'] = value.wn
             attrs_helper(value.attrs, h5obj[key])
