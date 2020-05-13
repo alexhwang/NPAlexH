@@ -1,0 +1,312 @@
+from matplotlib.lines import Line2D
+def get_param_values(dct, times_lst, prefix):
+    centers = np.array([dct[expt_time]['params'][prefix+'_center'] for expt_time in times_lst])
+    centers_stderrs = np.array([dct[expt_time]['params'][prefix+'_center'].stderr for expt_time in times_lst],
+                              dtype=np.float)
+    
+    sigmas = np.abs(np.array([dct[expt_time]['params'][prefix+'_sigma'] for expt_time in times_lst]))
+    sigmas_stderrs = np.array([dct[expt_time]['params'][prefix+'_sigma'].stderr for expt_time in times_lst],
+                             dtype=np.float)
+    
+    heights = np.abs(np.array([dct[expt_time]['params'][prefix+'_height'] for expt_time in times_lst]))
+    heights_stderrs = np.array([dct[expt_time]['params'][prefix+'_height'].stderr for expt_time in times_lst],
+                              dtype=np.float)
+    
+    areas = np.sqrt(2*np.pi)*sigmas*heights
+    areas_stderrs = areas*np.sqrt((sigmas_stderrs/sigmas)**2 + (heights_stderrs/heights)**2)
+    
+    avgs = np.array([round(np.mean(centers),3), 
+                    round(np.mean(sigmas),3),
+                    round(np.mean(heights),3),
+                    round(np.mean(areas),3)])
+    centers_stderrs_cleaned = centers_stderrs[~np.isnan(centers_stderrs)]
+    centers_stderrs_cleaned = centers_stderrs_cleaned[centers_stderrs_cleaned != 0]
+    
+    avgs_stderrs = np.array([round( (np.sum(centers_stderrs_cleaned**2))/np.size(centers_stderrs_cleaned),3),
+                             None,
+                             None,
+                             None])
+    
+    avgs_std_in_mean = np.array([round(np.std(centers_stderrs_cleaned)/np.sqrt(np.size(centers_stderrs_cleaned)),3),
+                             None,
+                             None,
+                             None])
+    return {
+        'centers': centers,
+        'centers_stderrs': centers_stderrs,
+        
+        'sigmas': sigmas,
+        'sigmas_stderrs': sigmas_stderrs,
+        
+        'heights': heights,
+        'heights_stderrs': heights_stderrs,
+        
+        'areas': areas,
+        'areas_stderrs': areas_stderrs,
+        
+        'avgs': avgs,
+        'avgs_stderrs': avgs_stderrs,
+        'avgs_std_in_mean': avgs_std_in_mean
+    }
+
+def get_param_bounds(dct, times_lst, prefix):
+    centers_mins = np.array([dct[expt_time]['params'][prefix+'_center'].min for expt_time in times_lst])
+    centers_maxs = np.array([dct[expt_time]['params'][prefix+'_center'].max for expt_time in times_lst])
+    
+    if not (np.all(centers_mins == centers_mins[0]) & np.all(centers_maxs == centers_maxs[0])):
+        print('Warning: centers bds not all same!')
+    centers_bds = (centers_mins, centers_maxs)
+    
+    sigmas_mins = np.array([dct[expt_time]['params'][prefix+'_sigma'].min for expt_time in times_lst])
+    sigmas_maxs = np.array([dct[expt_time]['params'][prefix+'_sigma'].max for expt_time in times_lst])
+    
+    if not (np.all(sigmas_mins == sigmas_mins[0]) & np.all(sigmas_maxs == sigmas_maxs[0])):
+        print('Warning: sigmas bds not all same!')
+    sigmas_bds = (sigmas_mins, sigmas_maxs)
+    
+    return {
+        'centers_bds': centers_bds,
+        'sigmas_bds': sigmas_bds,
+    }
+
+def get_total_areas(dct, times_lst, prefix_lst):
+    all_areas = []
+    for prefix in prefix_lst:
+        sigmas = np.array([dct[expt_time]['params'][prefix+'_sigma'] for expt_time in times_lst])
+        heights = np.array([dct[expt_time]['params'][prefix+'_height'] for expt_time in times_lst])
+        areas = np.sqrt(2*np.pi)*sigmas*heights
+        all_areas.append(areas)
+    return sum(all_areas)
+
+def total_integrated_areas(fitresults_dict, times):
+    integrated_areas = []
+    integrated_areas_fitted = []
+    for time in times:
+        area = fitresults_dict[time]['area']
+        area_fitted = fitresults_dict[time]['area_fitted']
+#         integral_spec = np.trapz(np.squeeze(spec.spec_data), spec.wn)
+        integrated_areas.append(area)
+        integrated_areas_fitted.append(area_fitted)
+    return (integrated_areas, integrated_areas_fitted)
+        
+def plot_param_results(fitresults_dict, times, peak_lst, bg_sub_dict=None, plot_bounds=True):
+    tab10 = plt.get_cmap('tab10')
+    colors = get_colors()
+    
+    peak_results = []
+    peak_bds = []
+    for peak in peak_lst:
+        peak_results.append(get_param_values(fitresults_dict, times, peak))
+        peak_bds.append(get_param_bounds(fitresults_dict, times, peak))
+    
+    ### Begin: plot central frequencies ###
+    plt.figure()
+    custom_lines = []
+    for (i, peak_result) in enumerate(peak_results):
+        plt.errorbar(times, peak_result['centers'], yerr=peak_result['centers_stderrs'], 
+                     fmt='-', markersize=3, linewidth=1, color=colors[peak_lst[i]])
+        custom_lines.append(Line2D([0], [0], color=colors[peak_lst[i]], lw=2))
+        if plot_bounds:
+            plt.plot(times, peak_bds[i]['centers_bds'][0], '-', color=colors[peak_lst[i]], linewidth=0.5)
+            plt.plot(times, peak_bds[i]['centers_bds'][1], '-', color=colors[peak_lst[i]], linewidth=0.5)
+    AHR.simpleline_style(xlim=None, ylim=None)
+    
+    plt.xlabel('Time after expt start (min)')
+    plt.ylabel('Peak center freq')
+    
+    plt.legend(custom_lines, peak_lst, ncol=2, fontsize='small')
+    plt.title('Peak center freqs')
+    plt.xlim([0, 220])
+    plt.show()
+    ### End: plot central frequencies ###
+    
+    ### Begin: plot sigmas ###
+    plt.figure()
+    custom_lines = []
+    for (i, peak_result) in enumerate(peak_results):
+        plt.errorbar(times, peak_result['sigmas'], yerr=peak_result['sigmas_stderrs'],
+                     fmt='-', markersize=3, linewidth=1, color=colors[peak_lst[i]])
+        custom_lines.append(Line2D([0], [0], color=colors[peak_lst[i]], lw=2))
+        if plot_bounds:
+            plt.plot(times, peak_bds[i]['sigmas_bds'][0], '-', color=colors[peak_lst[i]], linewidth=0.5)
+            plt.plot(times, peak_bds[i]['sigmas_bds'][1], '-', color=colors[peak_lst[i]], linewidth=0.5)
+    AHR.simpleline_style(xlim=None, ylim=None)
+    
+    plt.xlabel('Time after expt start (min)')
+    plt.ylabel('Peak sigma')
+    
+    plt.legend(custom_lines, peak_lst, ncol=2, fontsize='small')
+    plt.title('Peak sigma')
+    plt.xlim([0, 220])
+    plt.show()
+    ### End: plot plot sigmas ###
+    
+    ### Begin: plot heights ###
+    plt.figure()
+    custom_lines = []
+    for (i, peak_result) in enumerate(peak_results):
+        plt.errorbar(times, peak_result['heights'], yerr=peak_result['heights_stderrs'],
+                 fmt='-', markersize=3, linewidth=1, color=colors[peak_lst[i]])
+        custom_lines.append(Line2D([0], [0], color=colors[peak_lst[i]], lw=2))
+    AHR.simpleline_style(xlim=None, ylim=None)
+    
+    plt.xlabel('Time after expt start (min)')
+    plt.ylabel('Peak heights')
+    
+    plt.legend(custom_lines, peak_lst, ncol=2, fontsize='small')
+    plt.title('Peak height')
+    plt.xlim([0, 220])
+    plt.show()
+    ### End: plot plot heights ###
+    
+    ### Begin: plot areas ###
+    plt.figure()
+    custom_lines = []
+    for (i, peak_result) in enumerate(peak_results):
+        plt.errorbar(times, peak_result['areas'], yerr=peak_result['areas_stderrs'],
+                 fmt='-', markersize=3, linewidth=1, color=colors[peak_lst[i]])
+        custom_lines.append(Line2D([0], [0], color=colors[peak_lst[i]], lw=2))
+    AHR.simpleline_style(xlim=None, ylim=None)
+    
+    plt.xlabel('Time after expt start (min)')
+    plt.ylabel('Peak areas')
+    
+    plt.legend(custom_lines, peak_lst, ncol=2, fontsize='small')
+    plt.title('Peak areas')
+    plt.xlim([0, 220])
+    plt.show()
+    ### End: plot plot areas ###
+    
+    if bg_sub_dict != None:
+        integrated_areas = total_integrated_areas(fitresults_dict, times)
+        integrated_areas_normal = integrated_areas[0]
+        integrated_areas_fitted = integrated_areas[1]
+        
+        ### Begin: plot integrated areas ###
+        plt.figure()
+        plt.plot(times, integrated_areas_normal, '-', linewidth=1, markersize=3, color='black')
+        plt.title('Integrated band area')
+        plt.xlabel('Time after expt start (min)')
+        plt.ylabel('Area')
+        AHR.simpleline_style(xlim=None, ylim=None)
+        plt.xlim([0, 220])
+        plt.show()
+        
+        plt.figure()
+        plt.plot(times, integrated_areas_fitted, '-', linewidth=1, markersize=3, color='black')
+        plt.title('Integrated band area (fitted curves)')
+        plt.xlabel('Time after expt start (min)')
+        plt.ylabel('Area of fitted curves')
+        AHR.simpleline_style(xlim=None, ylim=None)
+        plt.xlim([0, 220])
+        plt.show()
+        ### End: plot integrated areas ###
+        
+        ### Begin: plot normalized areas ###
+        
+        plt.figure()
+        custom_lines = []
+        for (i, peak_result) in enumerate(peak_results):
+            normalized_areas = peak_result['areas']/integrated_areas_normal
+            normalized_areas_stderrs = peak_result['areas_stderrs']/integrated_areas_normal
+            plt.errorbar(times, normalized_areas, yerr=normalized_areas_stderrs,
+                         fmt='-', markersize=3, linewidth=1, color=colors[peak_lst[i]])
+            custom_lines.append(Line2D([0], [0], color=colors[peak_lst[i]], lw=2))
+        AHR.simpleline_style(xlim=None, ylim=None)
+
+        plt.xlabel('Time after expt start (min)')
+        plt.ylabel('Peak areas')
+
+        plt.legend(custom_lines, peak_lst, ncol=2, fontsize='small')
+        plt.title('Normalized peak areas')
+#         plt.yscale('log'); plt.ylim([1e-3, 0.11])
+        plt.xlim([0, 220])
+        plt.show()
+        
+        plt.figure()
+        custom_lines = []
+        for (i, peak_result) in enumerate(peak_results):
+            normalized_areas_fitted = peak_result['areas']/integrated_areas_fitted
+            normalized_areas_fitted_stderrs = peak_result['areas_stderrs']/integrated_areas_fitted
+            plt.errorbar(times, normalized_areas_fitted, yerr=normalized_areas_fitted_stderrs,
+                     fmt='-', markersize=3, linewidth=1, color=colors[peak_lst[i]])
+            custom_lines.append(Line2D([0], [0], color=colors[peak_lst[i]], lw=2))
+        AHR.simpleline_style(xlim=None, ylim=None)
+
+        plt.xlabel('Time after expt start (min)')
+        plt.ylabel('Peak areas')
+
+        plt.legend(custom_lines, peak_lst, ncol=2, fontsize='small')
+        plt.title('Normalized (fitted) peak areas')
+#         plt.yscale('log'); plt.ylim([1e-3, 0.11])
+        plt.xlim([0, 220])
+        plt.show()
+        ### End: plot plot normalized areas ###
+        
+def extract_peak_results(fitresults_dict, times, peak_lst):
+    peak_results = []
+    peak_bds = []
+    integrated_areas = np.array([fitresults_dict[expt_time]['area'] for expt_time in times])
+    for peak in peak_lst:
+        gpv_result = get_param_values(fitresults_dict, times, peak)
+        normalized_dict = {
+            'areas_norm': gpv_result['areas']/integrated_areas,
+            'areas_norm_stderrs': gpv_result['areas_stderrs']/integrated_areas,
+        }
+        gpv_result_with_normalized_areas = {**normalized_dict, **gpv_result}
+        
+        peak_results.append(gpv_result_with_normalized_areas)
+        peak_bds.append(get_param_bounds(fitresults_dict, times, peak))    
+    
+    return (peak_results, peak_bds)
+
+def full_summary_figure_plot_helper(ax, times, peak_results, result_name, peak_lst,
+                                    ylabel, legend, 
+                                    plt_fmt, plt_markersize, plt_lw, colors):
+    custom_lines = []
+    for i, peak_result in enumerate(peak_results):
+        
+        ax.errorbar(times, peak_result[result_name], yerr=peak_result[result_name+'_stderrs'], 
+                        fmt=plt_fmt, markersize=plt_markersize, linewidth=plt_lw, color=colors[peak_lst[i]])
+        custom_lines.append(Line2D([0], [0], color=colors[peak_lst[i]], lw=2))
+    ax.set_ylabel(ylabel)
+    ax.set_xlim([-20, 360])
+    ax.minorticks_on()
+    ax.legend(custom_lines, legend, ncol=2, fontsize='x-small')
+
+def get_colors():
+    tab10 = plt.get_cmap('tab10')
+    pastel1 = plt.get_cmap('Pastel1')
+    set3 = plt.get_cmap('Set3')
+    colors = {
+        'OD_x': tab10(0),
+        'OH_x': tab10(0),
+        'OD_y': tab10(1),
+        'OH_y': tab10(1),
+        'OD_z': tab10(2),
+        'OH_z': tab10(2),
+        'OD_xxx': tab10(3),
+        'OD_yyy': tab10(4),
+        'OD_yz': tab10(5),
+        'OD_A': tab10(6),
+        'OH_A': tab10(6),
+        'OD_B': tab10(7),
+        'OH_B': tab10(7),
+        'OD_C': tab10(8),
+        'OH_C': tab10(8),
+        'OD_D': tab10(9),
+        'OH_D': tab10(9),
+        'OH_xy': pastel1(0),
+        'p830': set3(0),
+        'p450': set3(3),
+        'OD_w': set3(6),
+        'p1660': tab10(8),
+        'p1690': set3(2),
+        'p1750': set3(4),
+        'p1780': set3(7),
+        'OD_l': set3(9),
+        'OD_m': set3(10),
+        'OD_o': set3(5),
+        'OD_p': set3(8)
+    }
+    return colors

@@ -37,7 +37,7 @@ class Raman_Spectrum(object):
         self.ramanIntensities = ramanIntensities
         self.absRamanIntensities = absRamanIntensities
 
-def extractRamanSpc(path, bg_path = False, combine_statics = False):
+def extractRamanSpc(path, bg_path = False, combine_statics = False, xaxis='wn'):
     '''Takes all .spc files from a directory and creates Raman_Spectrum object for each and also background subtracts, if specified
        .spc files must be directly exported at time of measurement. If .wdf file was re-opened with WiRE and then saved as .spc, use old code ('2017-04-14_Spectra_Class')
        Plots ASCII table with relevant metadata. Set table=False to omit this
@@ -81,9 +81,11 @@ def extractRamanSpc(path, bg_path = False, combine_statics = False):
 
     os.chdir(path)
     spcFiles_full = sorted(os.listdir('.'), key=os.path.getmtime)
+    # spcFiles_full = sorted(os.listdir('.'), key=os.path.getctime)
     print(spcFiles_full)
     spcFiles = [f for f in spcFiles_full if f.endswith('.spc')]
     creation_times = [time.ctime(os.path.getmtime(f)) for f in spcFiles]
+    # creation_times = [time.ctime(os.path.getctime(f)) for f in spcFiles]
     spectra = []
 
     for n, spcFile in enumerate(spcFiles):
@@ -128,7 +130,11 @@ def extractRamanSpc(path, bg_path = False, combine_statics = False):
 
         accumulations = int(f.log_dict[b'Accumulations'][15:])
 
-        wavenumbers = f.x #Pulls x data from spc file
+        if xaxis=='wn':
+            wavenumbers = f.x #Pulls x data from spc file
+        elif xaxis=='wl':
+            wavenumbers = 1e7*(1/laserWl - 1/f.x)
+
         nScans = int(f.__dict__['fnsub']) #Number of Raman spectra contained within the spc file (>1 if file contains a kinetic scan)
         ramanIntensities = np.array([f.sub[i].y for i in range(nScans)]) #Builds list of y data arrays
         
@@ -178,6 +184,7 @@ def populateH5(spectra, h5File):
                      'Number of Scans'   : spectrum.nScans,
                      'Wavenumbers'       : spectrum.wavenumbers,
                      'Grating'           : spectrum.grating}
+            
             attrs.update(spectrum.metadata)
 
             for key in attrs:
@@ -188,6 +195,7 @@ def populateH5(spectra, h5File):
                     continue
 
             x = spectrum.wavenumbers
+
             yRaw = spectrum.ramanIntensities
             yAbs = spectrum.absRamanIntensities
 
@@ -262,9 +270,9 @@ def createOutputFile(filename):
 #     h5FileName = createOutputFile(dirName)
 #     populateH5(spectra, h5FileName)
     
-def run(rootDir):
+def run(rootDir, xaxis='wn'):
     print('Extracting data from %s' % rootDir)
-    spectra = extractRamanSpc(rootDir)
+    spectra = extractRamanSpc(rootDir, xaxis=xaxis)
     dirName = '%s-raman-data' % rootDir.split('\\')[-1]
     h5FileName = createOutputFile(dirName)
     populateH5(spectra, h5FileName)
