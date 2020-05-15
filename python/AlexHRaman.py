@@ -376,6 +376,7 @@ def mpl_inline():
     mpl.rcParams['figure.dpi']= 150
     plt.rcParams['figure.facecolor'] = 'white'
 
+
 def simpleline_style(xlim=[0,4000], ylim=[0, 10000]):
     fig = plt.gcf()
     ax = plt.gca()

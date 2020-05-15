@@ -53,6 +53,13 @@ def bg_sub(raman_spectra, plot_each=False, reduce_region=[3090,4000], cut_region
         return BGsub
 
 def sph(model, param, value, set_min=-np.inf, set_max=np.inf, win=None, v=True):
+    if param[-5:] == 'sigma':
+        param = param[:-5]+'fwhm'
+        value*=2.355
+        set_min*=2.355
+        set_max*=2.355
+        if win != None:
+            win*=2.355
     if win==None:
         model.set_param_hint(param, value=value, min=set_min, max=set_max, vary=v)
     else:
@@ -67,16 +74,18 @@ def short_fit_report(fit_result, prefixes):
         prefix_i = prefixes[i]
         center = str(round(fit_result.params[prefix_i+'_center'].value, 2))
         center_vary = '' if fit_result.params[prefix_i+'_center'].vary else '(f)'
-        sigma = str(round(fit_result.params[prefix_i+'_sigma'].value, 2))
-        sigma_vary = '' if fit_result.params[prefix_i+'_sigma'].vary else '(f) '
+        fwhm = str(round(fit_result.params[prefix_i+'_fwhm'].value, 2))
+        fwhm_vary = '' if fit_result.params[prefix_i+'_fwhm'].vary else '(f) '
         height = str(round(fit_result.params[prefix_i+'_height'].value, 2))
-        result = (prefix_i + ': ' + '(' + center + center_vary + ', ' + sigma + sigma_vary + ', ' + height + ')')
+        result = (prefix_i + ': ' + '(' + center + center_vary + ', ' + fwhm + fwhm_vary + ', ' + height + ')')
         total_report+=(result+'\n')
     return total_report
 
-def gaussian(x, center, height, sigma):
+def gaussian(x, center, height, fwhm):
+    sigma = fwhm/2.35482
     return np.abs(height)*np.exp(-np.power((x-center), 2)/(2*sigma**2))
-def lorentzian(x, center, height, width):
+def lorentzian(x, center, height, fwhm):
+    width=fwhm/2
     return height / (1 + ((x-center)/width)**2)
 def fit_routine(BGsub_spectra, run_gaussians_params_func, to_run='all', 
                 piggyback=False, calc_ci='no', return_full_fitresults=False, scale_covar=True,
@@ -100,7 +109,7 @@ def fit_routine(BGsub_spectra, run_gaussians_params_func, to_run='all',
         if (to_run != 'all'):
             if (expt_time not in to_run):
                 continue
-        print(expt_time)
+        
     
         (model, prefixes) = run_gaussians_params_func(expt_time)
         
@@ -131,9 +140,9 @@ def fit_routine(BGsub_spectra, run_gaussians_params_func, to_run='all',
         if calc_ci == 'yes_fill_stderr':
             for p in fitresult.params:
                 fitresult.params[p].stderr = abs(fitresult.params[p].value * 0.1)
-            fitresult.conf_interval(sigmas=[1])
+            fitresult.conf_interval(fwhms=[1])
         elif calc_ci == 'yes':
-            fitresult.conf_interval(sigmas=[1])
+            fitresult.conf_interval(fwhms=[1])
         
         fitresult_ci_out = fitresult.ci_out
         last_params=fitresult.params
@@ -154,6 +163,7 @@ def fit_routine(BGsub_spectra, run_gaussians_params_func, to_run='all',
         cmpts = fitresult.eval_components()
         
         if plot_all:
+            print(expt_time)
             plt.figure()
             plt.plot(spec.wn, spec.spec_data.T)
             plt.plot(spec.wn, fitresult.eval())
@@ -170,7 +180,7 @@ def fit_routine(BGsub_spectra, run_gaussians_params_func, to_run='all',
                 fig=plt.gcf()
                 fig.set_size_inches(12/2.54, 5.33/2.54)
 
-                fit_annotation = ('Gaussian: (ν0, σ, A)\n'+short_fit_report(fitresult, prefixes)+
+                fit_annotation = ('Gaussian: (ν0, fwhm, height)\n'+short_fit_report(fitresult, prefixes)+
                                   'Integrated area: '+str("{:.2e}".format(integrated_area)))
                 plt.subplots_adjust(left=0.1, bottom=0.1, right=0.5, top=0.9)
                 plt.annotate(fit_annotation, (0.51,0.1), xycoords='figure fraction', fontsize=11)
@@ -188,19 +198,19 @@ def get_param_values(dct, times_lst, prefix):
     centers_stderrs = np.array([dct[expt_time]['params'][prefix+'_center'].stderr for expt_time in times_lst],
                               dtype=np.float)
     
-    sigmas = np.abs(np.array([dct[expt_time]['params'][prefix+'_sigma'] for expt_time in times_lst]))
-    sigmas_stderrs = np.array([dct[expt_time]['params'][prefix+'_sigma'].stderr for expt_time in times_lst],
+    fwhms = np.abs(np.array([dct[expt_time]['params'][prefix+'_fwhm'] for expt_time in times_lst]))
+    fwhms_stderrs = np.array([dct[expt_time]['params'][prefix+'_fwhm'].stderr for expt_time in times_lst],
                              dtype=np.float)
     
     heights = np.abs(np.array([dct[expt_time]['params'][prefix+'_height'] for expt_time in times_lst]))
     heights_stderrs = np.array([dct[expt_time]['params'][prefix+'_height'].stderr for expt_time in times_lst],
                               dtype=np.float)
     
-    areas = np.sqrt(2*np.pi)*sigmas*heights
-    areas_stderrs = areas*np.sqrt((sigmas_stderrs/sigmas)**2 + (heights_stderrs/heights)**2)
+    areas = np.sqrt(2*np.pi)*fwhms/2.355*heights
+    areas_stderrs = areas/2.355*np.sqrt((fwhms_stderrs/fwhms)**2 + (heights_stderrs/heights)**2)
     
     avgs = np.array([round(np.mean(centers),3), 
-                    round(np.mean(sigmas),3),
+                    round(np.mean(fwhms),3),
                     round(np.mean(heights),3),
                     round(np.mean(areas),3)])
     centers_stderrs_cleaned = centers_stderrs[~np.isnan(centers_stderrs)]
@@ -219,8 +229,8 @@ def get_param_values(dct, times_lst, prefix):
         'centers': centers,
         'centers_stderrs': centers_stderrs,
         
-        'sigmas': sigmas,
-        'sigmas_stderrs': sigmas_stderrs,
+        'fwhms': fwhms,
+        'fwhms_stderrs': fwhms_stderrs,
         
         'heights': heights,
         'heights_stderrs': heights_stderrs,
@@ -241,24 +251,24 @@ def get_param_bounds(dct, times_lst, prefix):
         print('Warning: centers bds not all same!')
     centers_bds = (centers_mins, centers_maxs)
     
-    sigmas_mins = np.array([dct[expt_time]['params'][prefix+'_sigma'].min for expt_time in times_lst])
-    sigmas_maxs = np.array([dct[expt_time]['params'][prefix+'_sigma'].max for expt_time in times_lst])
+    fwhms_mins = np.array([dct[expt_time]['params'][prefix+'_fwhm'].min for expt_time in times_lst])
+    fwhms_maxs = np.array([dct[expt_time]['params'][prefix+'_fwhm'].max for expt_time in times_lst])
     
-    if not (np.all(sigmas_mins == sigmas_mins[0]) & np.all(sigmas_maxs == sigmas_maxs[0])):
-        print('Warning: sigmas bds not all same!')
-    sigmas_bds = (sigmas_mins, sigmas_maxs)
+    if not (np.all(fwhms_mins == fwhms_mins[0]) & np.all(fwhms_maxs == fwhms_maxs[0])):
+        print('Warning: fwhms bds not all same!')
+    fwhms_bds = (fwhms_mins, fwhms_maxs)
     
     return {
         'centers_bds': centers_bds,
-        'sigmas_bds': sigmas_bds,
+        'fwhms_bds': fwhms_bds,
     }
 
 def get_total_areas(dct, times_lst, prefix_lst):
     all_areas = []
     for prefix in prefix_lst:
-        sigmas = np.array([dct[expt_time]['params'][prefix+'_sigma'] for expt_time in times_lst])
+        fwhms = np.array([dct[expt_time]['params'][prefix+'_fwhm'] for expt_time in times_lst])
         heights = np.array([dct[expt_time]['params'][prefix+'_height'] for expt_time in times_lst])
-        areas = np.sqrt(2*np.pi)*sigmas*heights
+        areas = np.sqrt(2*np.pi)*fwhms/2.355*heights
         all_areas.append(areas)
     return sum(all_areas)
 
@@ -304,26 +314,26 @@ def plot_param_results(fitresults_dict, times, peak_lst, bg_sub_dict=None, plot_
     plt.show()
     ### End: plot central frequencies ###
     
-    ### Begin: plot sigmas ###
+    ### Begin: plot fwhms ###
     plt.figure()
     custom_lines = []
     for (i, peak_result) in enumerate(peak_results):
-        plt.errorbar(times, peak_result['sigmas'], yerr=peak_result['sigmas_stderrs'],
+        plt.errorbar(times, peak_result['fwhms'], yerr=peak_result['fwhms_stderrs'],
                      fmt='-', markersize=3, linewidth=1, color=colors[peak_lst[i]])
         custom_lines.append(Line2D([0], [0], color=colors[peak_lst[i]], lw=2))
         if plot_bounds:
-            plt.plot(times, peak_bds[i]['sigmas_bds'][0], '-', color=colors[peak_lst[i]], linewidth=0.5)
-            plt.plot(times, peak_bds[i]['sigmas_bds'][1], '-', color=colors[peak_lst[i]], linewidth=0.5)
+            plt.plot(times, peak_bds[i]['fwhms_bds'][0], '-', color=colors[peak_lst[i]], linewidth=0.5)
+            plt.plot(times, peak_bds[i]['fwhms_bds'][1], '-', color=colors[peak_lst[i]], linewidth=0.5)
     AHR.simpleline_style(xlim=None, ylim=None)
     
     plt.xlabel('Time after expt start (min)')
-    plt.ylabel('Peak sigma')
+    plt.ylabel('Peak fwhm')
     
     plt.legend(custom_lines, peak_lst, ncol=2, fontsize='small')
-    plt.title('Peak sigma')
+    plt.title('Peak fwhm')
     plt.xlim([0, 220])
     plt.show()
-    ### End: plot plot sigmas ###
+    ### End: plot plot fwhms ###
     
     ### Begin: plot heights ###
     plt.figure()
@@ -460,6 +470,7 @@ def full_summary_figure_plot_helper(ax, times, peak_results, result_name, peak_l
 
 def get_colors():
     tab10 = plt.get_cmap('tab10')
+    tab20 = plt.get_cmap('tab20')
     pastel1 = plt.get_cmap('Pastel1')
     set3 = plt.get_cmap('Set3')
     colors = {
@@ -491,6 +502,8 @@ def get_colors():
         'OD_l': set3(9),
         'OD_m': set3(10),
         'OD_o': set3(5),
-        'OD_p': set3(8)
+        'OD_p': set3(8),
+        'p2320': tab20(9),
+        'p2330': tab20(8)
     }
     return colors
